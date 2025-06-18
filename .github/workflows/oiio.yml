@@ -24,10 +24,19 @@ jobs:
             compiler: gcc
 
     steps:
+    - name: Debug Info
+      run: |
+        echo "Runner OS: ${{ runner.os }}"
+        echo "Triplet: ${{ matrix.triplet }}"
+        echo "Compiler: ${{ matrix.compiler }}"
+        echo "Event: ${{ github.event_name }}"
+        echo "Branch: ${{ github.ref_name }}"
+      shell: bash
+
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Setup vcpkg
+    - name: Setup Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.x'
@@ -50,12 +59,17 @@ jobs:
       uses: actions/cache@v4
       with:
         path: |
-          ~/.cache/vcpkg
           ./vcpkg
-        key: vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}
+          ./vcpkg/installed
+        key: ${{ runner.os }}-vcpkg-${{ matrix.triplet }}-openimageio-${{ hashFiles('vcpkg.json') }}
+
+    - name: Prepare vcpkg Directory (if cache miss)
+      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+      run: mkdir -p vcpkg
+      shell: bash
 
     - name: Install vcpkg (Linux/macOS)
-      if: matrix.os != 'windows-latest'
+      if: matrix.os != 'windows-latest' && steps.cache-vcpkg.outputs.cache-hit != 'true'
       run: |
         git clone https://github.com/microsoft/vcpkg.git
         cd vcpkg
@@ -67,15 +81,14 @@ jobs:
         CXX: g++
 
     - name: Install vcpkg (Windows)
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-latest' && steps.cache-vcpkg.outputs.cache-hit != 'true'
+      shell: cmd
       run: |
         git clone https://github.com/microsoft/vcpkg.git
         cd vcpkg
-        .\bootstrap-vcpkg.bat
-        .\vcpkg integrate install
-      shell: cmd
-      env:
-        VCPKG_VISUAL_STUDIO_PATH: "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        bootstrap-vcpkg.bat
+        vcpkg integrate install
 
     - name: Install OpenImageIO
       run: |
@@ -95,14 +108,24 @@ jobs:
       shell: bash
 
     - name: Package artifacts including third-party libraries
+      if: matrix.os != 'windows-latest'
       run: |
         mkdir -p artifacts
         cp -r vcpkg/installed/${{ matrix.triplet }} artifacts/openimageio-with-deps-${{ matrix.triplet }}
+        tar -czf openimageio-with-deps-${{ matrix.triplet }}.tar.gz -C artifacts openimageio-with-deps-${{ matrix.triplet }}
       shell: bash
+
+    - name: Package artifacts including third-party libraries (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Path artifacts -Force
+        Copy-Item -Path vcpkg/installed/${{ matrix.triplet }} -Destination artifacts/openimageio-with-deps-${{ matrix.triplet }} -Recurse
+        Compress-Archive -Path artifacts/openimageio-with-deps-${{ matrix.triplet }} -DestinationPath openimageio-with-deps-${{ matrix.triplet }}.zip -Force
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: openimageio-with-deps-${{ matrix.os }}-${{ matrix.triplet }}
-        path: artifacts/openimageio-with-deps-${{ matrix.triplet }}
+        name: openimageio-with-deps-${{ runner.os }}-${{ matrix.triplet }}
+        path: openimageio-with-deps-${{ matrix.triplet }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
         retention-days: 7
