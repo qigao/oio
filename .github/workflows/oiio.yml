@@ -92,7 +92,7 @@ jobs:
 
     - name: Install OpenImageIO
       run: |
-        ./vcpkg/vcpkg install openimageio[core,tools,opencolorio,pybind11]:${{ matrix.triplet }}
+        ./vcpkg/vcpkg install openimageio[core,tools]:${{ matrix.triplet }}
       shell: bash
       env:
         CC: ${{ matrix.os != 'windows-latest' && 'gcc' || '' }}
